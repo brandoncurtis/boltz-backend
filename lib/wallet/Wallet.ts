@@ -112,19 +112,19 @@ class Wallet {
       });
     };
 
-    this.chainClient.on('transaction.relevant.mempool', (transaction: Transaction) => {
-      upsertUtxo(transaction, false);
-    });
+    this.chainClient.on('transaction', async (transaction: Transaction, confirmed: boolean) => {
+      if (confirmed) {
+        const mempoolInsertPromise = mempoolInsertPromises.get(transaction.getId());
 
-    this.chainClient.on('transaction.relevant.block', async (transaction: Transaction) => {
-      const mempoolInsertPromise = mempoolInsertPromises.get(transaction.getId());
+        if (mempoolInsertPromise) {
+          mempoolInsertPromises.delete(transaction.getId());
+          await mempoolInsertPromise;
+        }
 
-      if (mempoolInsertPromise) {
-        mempoolInsertPromises.delete(transaction.getId());
-        await mempoolInsertPromise;
+        upsertUtxo(transaction, true);
+      } else {
+        upsertUtxo(transaction, false);
       }
-
-      upsertUtxo(transaction, true);
     });
 
     this.chainClient.on('block', async (blockheight: number) => {

@@ -159,19 +159,22 @@ class GrpcService {
   }
 
   private subscribeToEvents = () => {
+    const { eventHandler } = this.service;
+
     // Transaction subscription
-    this.service.on('transaction.confirmed', (transactionHash: string, outputAddress: string) => {
+    eventHandler.on('transaction', (outputAddress: string, transactionHash: string, confirmed: boolean) => {
       this.transactionSubscriptions.forEach((subscription) => {
         const response = new boltzrpc.SubscribeTransactionsResponse();
-        response.setTransactionHash(transactionHash);
         response.setOutputAddress(outputAddress);
+        response.setTransactionHash(transactionHash);
+        response.setConfirmed(confirmed);
 
         subscription.write(response);
       });
     });
 
     // Invoice subscriptions
-    this.service.on('invoice.paid', (invoice: string) => {
+    eventHandler.on('invoice.paid', (invoice: string) => {
       this.invoiceSubscriptions.forEach((subscription) => {
         const response = new boltzrpc.SubscribeInvoicesResponse();
         response.setEvent(boltzrpc.InvoiceEvent.PAID);
@@ -181,7 +184,7 @@ class GrpcService {
       });
     });
 
-    this.service.on('invoice.failedToPay', (invoice: string) => {
+    eventHandler.on('invoice.failedToPay', (invoice: string) => {
       this.invoiceSubscriptions.forEach((subscription) => {
         const response = new boltzrpc.SubscribeInvoicesResponse();
         response.setEvent(boltzrpc.InvoiceEvent.FAILED_TO_PAY);
@@ -191,7 +194,7 @@ class GrpcService {
       });
     });
 
-    this.service.on('invoice.settled', (invoice: string, preimage: string) => {
+    eventHandler.on('invoice.settled', (invoice: string, preimage: string) => {
       this.invoiceSubscriptions.forEach((subscription) => {
         const response = new boltzrpc.SubscribeInvoicesResponse();
         response.setEvent(boltzrpc.InvoiceEvent.SETTLED);
@@ -203,7 +206,7 @@ class GrpcService {
     });
 
     // Refund subscription
-    this.service.on('refund', (lockupTransactionHash: string) => {
+    eventHandler.on('refund', (lockupTransactionHash: string) => {
       this.refundSubscriptions.forEach((subscription) => {
         const response = new boltzrpc.SubscribeRefundsResponse();
         response.setLockupTransactionHash(lockupTransactionHash);
@@ -213,7 +216,7 @@ class GrpcService {
     });
 
     // Channel backup subscription
-    this.service.on('channel.backup', (currency: string, channelBackup: string) => {
+    eventHandler.on('channel.backup', (currency: string, channelBackup: string) => {
       this.channelBackupSubscriptions.forEach((subscription) => {
         const response = new boltzrpc.ChannelBackup();
         response.setCurrency(currency);

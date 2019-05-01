@@ -1,11 +1,13 @@
-import { BIP32Interface } from 'bip32';
 import { EventEmitter } from 'events';
+import { BIP32Interface } from 'bip32';
 import { Transaction, address, TxOutput } from 'bitcoinjs-lib';
 import { constructClaimTransaction, OutputType, TransactionOutput, constructRefundTransaction } from 'boltz-core';
 import Logger from '../Logger';
 import LndClient from '../lightning/LndClient';
-import { getHexString, transactionHashToId } from '../Utils';
+import ChainClient from '../chain/ChainClient';
+import { RawTransaction } from '../consts/Types';
 import WalletManager, { Currency } from '../wallet/WalletManager';
+import { getHexString, transactionHashToId, transactionSignalsRbf, reverseBuffer } from '../Utils';
 
 type BaseSwapDetails = {
   redeemScript: Buffer;
@@ -46,7 +48,21 @@ class SwapNursery extends EventEmitter {
   }
 
   public bindCurrency = (currency: Currency, maps: SwapMaps) => {
-    currency.chainClient.on('transaction.relevant.block', async (transaction: Transaction) => {
+    const { chainClient } = currency;
+
+    // TODO: check lock time
+    // TODO: limits for 0 conf
+    chainClient.on('transaction', async (transaction: Transaction, confirmed: boolean) => {
+      // Boltz will wait for a confirmation if the transaction is not confirmed and signals RBF
+      if (!confirmed) {
+        const signalsRbf = await this.transactionSignalsRbf(chainClient, transaction);
+
+        if (signalsRbf) {
+          this.logger.debug(`Ignoring 0-conf ${currency.symbol} swap output because of RBF: ${transaction.getId()}`);
+          return;
+        }
+      }
+
       let vout = 0;
 
       for (const openOutput of transaction.outs) {
@@ -73,7 +89,7 @@ class SwapNursery extends EventEmitter {
       }
     });
 
-    currency.chainClient.on('block', async (height: number) => {
+    chainClient.on('block', async (height: number) => {
       const reverseSwaps = maps.reverseSwaps.get(height);
 
       if (reverseSwaps) {
@@ -88,8 +104,8 @@ class SwapNursery extends EventEmitter {
     const swapOutput = `${transactionHashToId(txHash)}:${vout}`;
 
     if (outputValue < details.expectedAmount) {
-      this.logger.warn(`Value ${outputValue} of ${swapOutput} is less than expected ${details.expectedAmount}. ` +
-        `Aborting ${currency.symbol} swap`);
+      this.logger.warn(`Aborting ${currency.symbol} swap:` +
+      ` value ${outputValue} of ${swapOutput} is less than expected ${details.expectedAmount}.`);
       return;
     }
 
@@ -170,6 +186,34 @@ class SwapNursery extends EventEmitter {
     }
 
     return;
+  }
+
+  /**
+   * Detects signalling of RBF as described in https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki
+   */
+  private transactionSignalsRbf = async (chainClient: ChainClient, transaction: Transaction) => {
+    const signalsRbf = transactionSignalsRbf(transaction);
+
+    // Check for explicit signalling
+    if (signalsRbf) {
+      return true;
+    }
+
+    // Check for inherited signalling from RBF input transactions that are also still unconfirmed
+    for (const input of transaction.ins) {
+      const id = getHexString(reverseBuffer(input.hash));
+      const inputTransaction = await chainClient.getRawTransaction(id, true) as RawTransaction;
+
+      if (!inputTransaction.confirmations) {
+        const inputSignalsRbf = await this.transactionSignalsRbf(chainClient, Transaction.fromHex(inputTransaction.hex));
+
+        if (inputSignalsRbf) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 }
 

@@ -1,6 +1,7 @@
 import os from 'os';
 import path from 'path';
 import { OutputType, Scripts } from 'boltz-core';
+import { Transaction } from 'bitcoinjs-lib';
 
 const { p2wshOutput, p2shP2wshOutput, p2shOutput, p2wpkhOutput, p2pkhOutput, p2shP2wpkhOutput } = Scripts;
 
@@ -233,4 +234,16 @@ export const transactionHashToId = (transactionHash: Buffer) => {
   return getHexString(
     reverseBuffer(transactionHash),
   );
+};
+
+export const transactionSignalsRbf = (transaction: Transaction) => {
+  let singalsRbf = false;
+
+  transaction.ins.forEach((input) => {
+    if (input.sequence < 0xffffffff - 1) {
+      singalsRbf = true;
+    }
+  });
+
+  return singalsRbf;
 };

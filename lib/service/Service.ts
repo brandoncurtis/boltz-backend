@@ -1,9 +1,9 @@
-import { EventEmitter } from 'events';
 import { SwapUtils } from 'boltz-core';
-import { Transaction, address } from 'bitcoinjs-lib';
+import { address } from 'bitcoinjs-lib';
 import Errors from './Errors';
 import Logger from '../Logger';
 import Wallet from '../wallet/Wallet';
+import EventHandler from './EventHandler';
 import SwapManager from '../swap/SwapManager';
 import WalletManager, { Currency } from '../wallet/WalletManager';
 import { getHexBuffer, getOutputType, getHexString } from '../Utils';
@@ -29,26 +29,6 @@ type ServiceComponents = {
   walletManager: WalletManager;
   swapManager: SwapManager;
 };
-
-interface Service {
-  on(event: 'transaction.confirmed', listener: (transactionHash: string, outputAddress: string) => void): this;
-  emit(event: 'transaction.confirmed', transactionHash: string, outputAddress: string): boolean;
-
-  on(even: 'invoice.paid', listener: (invoice: string) => void): this;
-  emit(event: 'invoice.paid', invoice: string): boolean;
-
-  on(event: 'invoice.failedToPay', listener: (invoice: string) => void): this;
-  emit(event: 'invoice.failedToPay', invoice: string): boolean;
-
-  on(event: 'invoice.settled', listener: (invoice: string, preimage: string) => void): this;
-  emit(event: 'invoice.settled', string: string, preimage: string): boolean;
-
-  on(event: 'refund', listener: (lockupTransactionHash: string) => void): this;
-  emit(event: 'refund', lockupTransactionHash: string): boolean;
-
-  on(event: 'channel.backup', listener: (currency: string, channelBackup: string) => void): this;
-  emit(event: 'channel.backup', currency: string, channelbackup: string): boolean;
-}
 
 const argChecks = {
   VALID_CURRENCY: ({ currency }: { currency: string }) => {
@@ -99,17 +79,14 @@ const argChecks = {
   },
 };
 
-class Service extends EventEmitter {
-  // A map between the hex strings of the scripts of the addresses and the addresses to which Boltz should listen to
-  private listenScriptsSet = new Map<string, string>();
+class Service {
+  public eventHandler!: EventHandler;
 
   constructor(private serviceComponents: ServiceComponents) {
-    super();
-
-    this.subscribeRefunds();
-    this.subscribeInvoices();
-    this.subscribeTransactions();
-    this.subscribeChannelBackups();
+    this.eventHandler = new EventHandler(
+      serviceComponents.currencies,
+      serviceComponents.swapManager,
+    );
   }
 
   /**
@@ -318,7 +295,7 @@ class Service extends EventEmitter {
 
     const script = address.toOutputScript(args.address, currency.network);
 
-    this.listenScriptsSet.set(getHexString(script), args.address);
+    this.eventHandler.listenScripts.set(getHexString(script), args.address);
     currency.chainClient.updateOutputFilter([script]);
   }
 
@@ -392,64 +369,6 @@ class Service extends EventEmitter {
       vout,
       transactionHash: transaction.getId(),
     };
-  }
-
-  /**
-   * Subscribes to a stream of confirmed transactions to addresses that were specified with "ListenOnAddress"
-   */
-  private subscribeTransactions = () => {
-    this.serviceComponents.currencies.forEach((currency) => {
-      currency.chainClient.on('transaction.relevant.block', (transaction: Transaction) => {
-        transaction.outs.forEach((out) => {
-          const listenAddress = this.listenScriptsSet.get(getHexString(out.script));
-
-          if (listenAddress) {
-            this.emit('transaction.confirmed', transaction.getId(), listenAddress);
-          }
-        });
-      });
-    });
-  }
-
-  /**
-   * Subscribes to a stream of settled invoices and those paid by Boltz
-   */
-  private subscribeInvoices = () => {
-    this.serviceComponents.currencies.forEach((currency) => {
-      currency.lndClient.on('invoice.paid', (invoice) => {
-        this.emit('invoice.paid', invoice);
-      });
-
-      currency.lndClient.on('invoice.settled', (invoice, preimage) => {
-        this.emit('invoice.settled', invoice, preimage);
-      });
-    });
-
-    this.serviceComponents.swapManager.nursery.on('invoice.failedToPay', (invoice) => {
-      this.emit('invoice.failedToPay', invoice);
-    });
-  }
-
-  /**
-   * Subscribes to a stream of lockup transactions that Boltz refunds
-   */
-  private subscribeRefunds = () => {
-    this.serviceComponents.swapManager.nursery.on('refund', (lockupTransactionHash) => {
-      this.emit('refund', lockupTransactionHash);
-    });
-  }
-
-  /**
-   * Subscribes to a a stream of channel backups
-   */
-  private subscribeChannelBackups = () => {
-    this.serviceComponents.currencies.forEach((currency) => {
-      const { symbol, lndClient } = currency;
-
-      lndClient.on('channel.backup', (channelBackup: string) => {
-        this.emit('channel.backup', symbol, channelBackup);
-      });
-    });
   }
 
   private getCurrency = (currencySymbol: string) => {

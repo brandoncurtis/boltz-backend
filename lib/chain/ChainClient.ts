@@ -31,11 +31,8 @@ interface ChainClient {
   on(event: 'block', listener: (height: number) => void): this;
   emit(event: 'block', height: number): boolean;
 
-  on(event: 'transaction.relevant.mempool', listener: (transaction: Transaction) => void): this;
-  emit(event: 'transaction.relevant.mempool', transaction: Transaction): boolean;
-
-  on(event: 'transaction.relevant.block', listener: (transaction: Transaction) => void): this;
-  emit(event: 'transaction.relevant.block', transaction: Transaction): boolean;
+  on(event: 'transaction', listener: (transaction: Transaction, confirmed: boolean) => void): this;
+  emit(event: 'transaction', transaction: Transaction, confirmed: boolean): boolean;
 }
 
 class ChainClient extends BaseClient {
@@ -142,12 +139,8 @@ class ChainClient extends BaseClient {
       this.emit('block', height);
     });
 
-    this.zmqClient.on('transaction.relevant.mempool', (transaction) => {
-      this.emit('transaction.relevant.mempool', transaction);
-    });
-
-    this.zmqClient.on('transaction.relevant.block', (transaction) => {
-      this.emit('transaction.relevant.block', transaction);
+    this.zmqClient.on('transaction', (transaction, confirmed) => {
+      this.emit('transaction', transaction, confirmed);
     });
   }
 }

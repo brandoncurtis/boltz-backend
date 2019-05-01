@@ -563,6 +563,9 @@ export class SubscribeTransactionsResponse extends jspb.Message {
     getOutputAddress(): string;
     setOutputAddress(value: string): void;
 
+    getConfirmed(): boolean;
+    setConfirmed(value: boolean): void;
+
 
     serializeBinary(): Uint8Array;
     toObject(includeInstance?: boolean): SubscribeTransactionsResponse.AsObject;
@@ -578,6 +581,7 @@ export namespace SubscribeTransactionsResponse {
     export type AsObject = {
         transactionHash: string,
         outputAddress: string,
+        confirmed: boolean,
     }
 }
 
